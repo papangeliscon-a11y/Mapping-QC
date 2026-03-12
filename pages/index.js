@@ -9,8 +9,7 @@ function normaliseName(filename) {
 }
 
 function parseFlagstat(text) {
-  let total = null
-  let mapped = null
+  let total = null, mapped = null
   for (const raw of text.split('\n')) {
     const line = raw.trim()
     if (line.includes('in total')) {
@@ -35,7 +34,27 @@ function fmtPct(n) {
   return Number(n).toFixed(2) + '%'
 }
 
-function UploadZone({ label, files, onFiles }) {
+function fmtM(n) {
+  if (n == null || isNaN(n)) return '—'
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M'
+  if (n >= 1e3) return (n / 1e3).toFixed(0) + 'K'
+  return n.toString()
+}
+
+function PctBarCell({ value, color }) {
+  if (value == null || isNaN(value)) return <span className="badge-na">—</span>
+  const w = Math.min(100, Math.max(0, value))
+  return (
+    <div className="pct-bar-wrap">
+      <div className="pct-bar-bg">
+        <div className="pct-bar-fill" style={{ width: w + '%', background: color }} />
+      </div>
+      <span className="pct-bar-label">{value.toFixed(1)}%</span>
+    </div>
+  )
+}
+
+function UploadZone({ label, files, onFiles, color }) {
   const [hover, setHover] = useState(false)
   const handleChange = (e) => {
     onFiles(Array.from(e.target.files || []))
@@ -46,11 +65,12 @@ function UploadZone({ label, files, onFiles }) {
       className={`upload-zone${hover ? ' active' : ''}`}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
+      style={hover ? { borderColor: color } : {}}
     >
       <input type="file" accept=".txt" multiple onChange={handleChange} />
       <div className="upload-icon">📂</div>
       <div className="upload-label">
-        <strong>{label}</strong>
+        <strong style={{ color }}>{label}</strong>
         Click or drag .txt flagstat files
       </div>
       {files.length > 0 && (
@@ -89,31 +109,24 @@ export default function Home() {
     setLoading(true)
     const [dict1, dict2] = await Promise.all([readFiles(f1), readFiles(f2)])
     const allSamples = [...new Set([...Object.keys(dict1), ...Object.keys(dict2)])].sort()
-    const rows = []
-    const warns = []
+    const rows = [], warns = []
 
     for (const sample of allSamples) {
       const e1 = dict1[sample] || null
       const e2 = dict2[sample] || null
-      let total1 = null, mapped1 = null
-      let total2 = null, mapped2 = null
+      let total1 = null, mapped1 = null, total2 = null, mapped2 = null
 
       if (e1) {
-        const r = parseFlagstat(e1.text)
-        total1 = r.total; mapped1 = r.mapped
-        if (total1 == null || mapped1 == null)
-          warns.push(`${sample}: could not fully parse ${label1} file (${e1.filename})`)
+        const r = parseFlagstat(e1.text); total1 = r.total; mapped1 = r.mapped
+        if (total1 == null || mapped1 == null) warns.push(`${sample}: could not fully parse ${label1} file (${e1.filename})`)
       }
       if (e2) {
-        const r = parseFlagstat(e2.text)
-        total2 = r.total; mapped2 = r.mapped
-        if (total2 == null || mapped2 == null)
-          warns.push(`${sample}: could not fully parse ${label2} file (${e2.filename})`)
+        const r = parseFlagstat(e2.text); total2 = r.total; mapped2 = r.mapped
+        if (total2 == null || mapped2 == null) warns.push(`${sample}: could not fully parse ${label2} file (${e2.filename})`)
       }
 
       const totalReads = total1 ?? total2
-      const m1 = mapped1 ?? 0
-      const m2 = mapped2 ?? 0
+      const m1 = mapped1 ?? 0, m2 = mapped2 ?? 0
       const totalMapped = m1 + m2
       const unmapped = totalReads != null ? Math.max(0, totalReads - totalMapped) : null
       const pct = (n, d) => (n != null && d != null && d > 0) ? n / d * 100 : null
@@ -129,23 +142,16 @@ export default function Home() {
         pct2ofMapped: totalMapped > 0 ? pct(m2, totalMapped) : null,
         totalMapped, total1, total2,
         totalsMatch: (total1 != null && total2 != null) ? total1 === total2 : null,
-        file1: e1 ? e1.filename : '',
-        file2: e2 ? e2.filename : '',
-        present1: !!e1,
-        present2: !!e2,
+        file1: e1 ? e1.filename : '', file2: e2 ? e2.filename : '',
+        present1: !!e1, present2: !!e2,
       })
     }
-    setTableData(rows)
-    setWarnings(warns)
-    setLoading(false)
+    setTableData(rows); setWarnings(warns); setLoading(false)
   }, [readFiles])
 
   useMemo(() => {
-    if (files1.length > 0 || files2.length > 0) {
-      buildTable(files1, files2, d1, d2)
-    } else {
-      setTableData(null)
-    }
+    if (files1.length > 0 || files2.length > 0) buildTable(files1, files2, d1, d2)
+    else setTableData(null)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [files1, files2, name1, name2])
 
@@ -169,26 +175,31 @@ export default function Home() {
     }))
   }, [tableData, d1, d2])
 
+  // Summary stats
+  const stats = useMemo(() => {
+    if (!tableData || tableData.length === 0) return null
+    const totalReads = tableData.reduce((s, r) => s + (r.totalReads ?? 0), 0)
+    const totalMapped = tableData.reduce((s, r) => s + (r.totalMapped ?? 0), 0)
+    const avgPct1 = tableData.filter(r => r.pct1 != null).reduce((s, r) => s + r.pct1, 0) / tableData.filter(r => r.pct1 != null).length
+    const avgPct2 = tableData.filter(r => r.pct2 != null).reduce((s, r) => s + r.pct2, 0) / tableData.filter(r => r.pct2 != null).length
+    return { totalReads, totalMapped, avgPct1, avgPct2, nSamples: tableData.length }
+  }, [tableData])
+
   const handleExport = useCallback(async () => {
     const XLSX = await import('xlsx')
     const mainRows = tableData.map(r => ({
-      Sample: r.sample,
-      'Total Reads': r.totalReads,
-      [`Mapped to ${d1}`]: r.mapped1,
-      [`Mapped to ${d2}`]: r.mapped2,
+      Sample: r.sample, 'Total Reads': r.totalReads,
+      [`Mapped to ${d1}`]: r.mapped1, [`Mapped to ${d2}`]: r.mapped2,
       'Unmapped Reads': r.unmapped,
       [`${d1} (%)`]: r.pct1 != null ? +r.pct1.toFixed(4) : null,
       [`${d2} (%)`]: r.pct2 != null ? +r.pct2.toFixed(4) : null,
       'Unmapped (%)': r.pctUnmapped != null ? +r.pctUnmapped.toFixed(4) : null,
       [`${d2} % of Mapped`]: r.pct2ofMapped != null ? +r.pct2ofMapped.toFixed(4) : null,
       'Total Mapped': r.totalMapped,
-      [`Total (${d1} file)`]: r.total1,
-      [`Total (${d2} file)`]: r.total2,
+      [`Total (${d1} file)`]: r.total1, [`Total (${d2} file)`]: r.total2,
       'Totals Match': r.totalsMatch,
-      [`${d1} Filename`]: r.file1,
-      [`${d2} Filename`]: r.file2,
-      [`${d1} Present`]: r.present1,
-      [`${d2} Present`]: r.present2,
+      [`${d1} Filename`]: r.file1, [`${d2} Filename`]: r.file2,
+      [`${d1} Present`]: r.present1, [`${d2} Present`]: r.present2,
     }))
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(mainRows), 'Mapping Summary')
@@ -201,116 +212,184 @@ export default function Home() {
 
   return (
     <div className="app">
-      <div className="header">
-        <h1>Mapping QC Comparison</h1>
-        <p>Flexible comparison of two mapping result sets</p>
+      {/* Top bar */}
+      <div className="topbar">
+        <div className="topbar-brand">
+          <div className="topbar-icon">🧬</div>
+          <span className="topbar-title">Mapping QC</span>
+          <span className="topbar-subtitle">/ Comparison Tool</span>
+        </div>
+        <span className="topbar-badge">Flagstat Analyser</span>
       </div>
 
-      <div className="card">
-        <div className="section-label">Dataset Labels</div>
-        <div className="name-grid">
-          <div className="field">
-            <label>Name for first dataset</label>
-            <input value={name1} onChange={e => setName1(e.target.value)} placeholder="Dataset 1" />
+      <div className="main">
+        {/* Config */}
+        <div className="card">
+          <div className="config-row">
+            {/* Dataset names */}
+            <div className="config-group">
+              <div className="config-group-label">Dataset Labels</div>
+              <div className="field">
+                <label>First dataset name</label>
+                <input value={name1} onChange={e => setName1(e.target.value)} placeholder="Dataset 1" />
+              </div>
+              <div className="field">
+                <label>Second dataset name</label>
+                <input value={name2} onChange={e => setName2(e.target.value)} placeholder="Dataset 2" />
+              </div>
+            </div>
+
+            {/* Upload zones */}
+            <div className="config-group">
+              <div className="config-group-label">Upload Flagstat Files</div>
+              <UploadZone label={`Upload ${d1} files`} files={files1} onFiles={setFiles1} color="#2563eb" />
+              <UploadZone label={`Upload ${d2} files`} files={files2} onFiles={setFiles2} color="#059669" />
+            </div>
           </div>
-          <div className="field">
-            <label>Name for second dataset</label>
-            <input value={name2} onChange={e => setName2(e.target.value)} placeholder="Dataset 2" />
+        </div>
+
+        {!hasData && !loading && (
+          <div className="info-banner">
+            Upload at least one set of .txt flagstat files to generate the report.
           </div>
-        </div>
-      </div>
+        )}
+        {loading && <div className="info-banner">Parsing files…</div>}
+        {warnings.length > 0 && (
+          <div className="warn-banner">
+            <strong>Parsing warnings: </strong>
+            {warnings.map((w, i) => <span key={i}>{w}; </span>)}
+          </div>
+        )}
 
-      <div className="card">
-        <div className="section-label">Upload Flagstat Files</div>
-        <div className="upload-grid">
-          <UploadZone label={`Upload ${d1} flagstat files`} files={files1} onFiles={setFiles1} />
-          <UploadZone label={`Upload ${d2} flagstat files`} files={files2} onFiles={setFiles2} />
-        </div>
-      </div>
+        {hasData && (
+          <>
+            {/* Stats row */}
+            {stats && (
+              <div className="stats-row">
+                <div className="stat-card">
+                  <div className="stat-label">Samples</div>
+                  <div className="stat-value">{stats.nSamples}</div>
+                  <div className="stat-sub">total samples analysed</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">Total Reads</div>
+                  <div className="stat-value">{fmtM(stats.totalReads)}</div>
+                  <div className="stat-sub">across all samples</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label" style={{ color: '#2563eb' }}>
+                    <span className="stat-dot" style={{ background: '#2563eb' }} />
+                    Avg {d1}
+                  </div>
+                  <div className="stat-value">{stats.avgPct1 != null ? stats.avgPct1.toFixed(1) + '%' : '—'}</div>
+                  <div className="stat-sub">mean mapping rate</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label" style={{ color: '#059669' }}>
+                    <span className="stat-dot" style={{ background: '#059669' }} />
+                    Avg {d2}
+                  </div>
+                  <div className="stat-value">{stats.avgPct2 != null ? stats.avgPct2.toFixed(1) + '%' : '—'}</div>
+                  <div className="stat-sub">mean mapping rate</div>
+                </div>
+              </div>
+            )}
 
-      {!hasData && !loading && (
-        <div className="info-banner">
-          Upload at least one set of .txt flagstat files to generate the report.
-        </div>
-      )}
-      {loading && <div className="info-banner">Parsing files…</div>}
-      {warnings.length > 0 && (
-        <div className="warn-banner">
-          <strong>Parsing warnings:</strong>
-          {warnings.map((w, i) => <div key={i}>– {w}</div>)}
-        </div>
-      )}
+            {/* Charts side by side */}
+            <div className="charts-grid">
+              <div className="card" style={{ marginBottom: 0 }}>
+                <div className="card-title">
+                  <div className="card-title-icon">📊</div>
+                  Absolute Reads
+                </div>
+                <div className="chart-wrap">
+                  <AbsChart data={absChartData} d1={d1} d2={d2} />
+                </div>
+              </div>
+              <div className="card" style={{ marginBottom: 0 }}>
+                <div className="card-title">
+                  <div className="card-title-icon">📈</div>
+                  Percent of Total Reads
+                </div>
+                <div className="chart-wrap">
+                  <PctChart data={pctChartData} d1={d1} d2={d2} />
+                </div>
+              </div>
+            </div>
 
-      {hasData && (
-        <>
-          <div className="card">
-            <div className="section-label">Summary Table</div>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Sample</th>
-                    <th>Total Reads</th>
-                    <th>→ {d1}</th>
-                    <th>→ {d2}</th>
-                    <th>Unmapped</th>
-                    <th>{d1} %</th>
-                    <th>{d2} %</th>
-                    <th>Unmapped %</th>
-                    <th>{d2} % of Mapped</th>
-                    <th>Totals Match</th>
-                    <th>{d1} Present</th>
-                    <th>{d2} Present</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tableData.map(r => (
-                    <tr key={r.sample}>
-                      <td>{r.sample}</td>
-                      <td className="td-num">{fmtNum(r.totalReads)}</td>
-                      <td className="td-num">{r.present1 ? fmtNum(r.mapped1) : <span className="badge-missing">missing</span>}</td>
-                      <td className="td-num">{r.present2 ? fmtNum(r.mapped2) : <span className="badge-missing">missing</span>}</td>
-                      <td className="td-num">{fmtNum(r.unmapped)}</td>
-                      <td className="td-num">{fmtPct(r.pct1)}</td>
-                      <td className="td-num">{fmtPct(r.pct2)}</td>
-                      <td className="td-num">{fmtPct(r.pctUnmapped)}</td>
-                      <td className="td-num">{fmtPct(r.pct2ofMapped)}</td>
-                      <td className="td-center">
-                        {r.totalsMatch == null ? <span className="badge-na">—</span>
-                          : r.totalsMatch ? <span className="badge-ok">✓</span>
-                          : <span className="badge-warn">✗</span>}
-                      </td>
-                      <td className="td-center">{r.present1 ? <span className="badge-ok">✓</span> : <span className="badge-warn">✗</span>}</td>
-                      <td className="td-center">{r.present2 ? <span className="badge-ok">✓</span> : <span className="badge-warn">✗</span>}</td>
+            {/* Table */}
+            <div className="card" style={{ marginTop: 20 }}>
+              <div className="card-title">
+                <div className="card-title-icon">🗂</div>
+                Summary Table
+                <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 400, color: 'var(--text-muted)' }}>
+                  {tableData.length} samples
+                </span>
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Sample</th>
+                      <th style={{ textAlign: 'right' }}>Total Reads</th>
+                      <th style={{ textAlign: 'right' }}>→ {d1}</th>
+                      <th style={{ textAlign: 'right' }}>→ {d2}</th>
+                      <th style={{ textAlign: 'right' }}>Unmapped</th>
+                      <th style={{ minWidth: 130 }}>{d1} %</th>
+                      <th style={{ minWidth: 130 }}>{d2} %</th>
+                      <th style={{ minWidth: 130 }}>Unmapped %</th>
+                      <th style={{ textAlign: 'center' }}>Totals Match</th>
+                      <th style={{ textAlign: 'center' }}>{d1}</th>
+                      <th style={{ textAlign: 'center' }}>{d2}</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {tableData.map(r => (
+                      <tr key={r.sample}>
+                        <td className="td-sample">{r.sample}</td>
+                        <td className="td-num">{fmtNum(r.totalReads)}</td>
+                        <td className="td-num">{r.present1 ? fmtNum(r.mapped1) : <span className="badge-missing">missing</span>}</td>
+                        <td className="td-num">{r.present2 ? fmtNum(r.mapped2) : <span className="badge-missing">missing</span>}</td>
+                        <td className="td-num">{fmtNum(r.unmapped)}</td>
+                        <td><PctBarCell value={r.pct1} color="#2563eb" /></td>
+                        <td><PctBarCell value={r.pct2} color="#059669" /></td>
+                        <td><PctBarCell value={r.pctUnmapped} color="#dc2626" /></td>
+                        <td className="td-center">
+                          {r.totalsMatch == null
+                            ? <span className="badge-na">—</span>
+                            : r.totalsMatch
+                              ? <span className="badge badge-ok">✓ Yes</span>
+                              : <span className="badge badge-warn">✗ No</span>}
+                        </td>
+                        <td className="td-center">
+                          {r.present1 ? <span className="badge badge-ok">✓</span> : <span className="badge badge-warn">✗</span>}
+                        </td>
+                        <td className="td-center">
+                          {r.present2 ? <span className="badge badge-ok">✓</span> : <span className="badge badge-warn">✗</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
 
-          <div className="card">
-            <div className="section-label">Absolute Reads</div>
-            <div className="chart-wrap">
-              <AbsChart data={absChartData} d1={d1} d2={d2} />
+            {/* Export */}
+            <div className="card">
+              <div className="card-title">
+                <div className="card-title-icon">⬇</div>
+                Export
+              </div>
+              <div className="export-row">
+                <button className="export-btn" onClick={handleExport}>
+                  Download Excel Report
+                </button>
+                <span className="export-hint">Includes summary table and plot data — 3 sheets</span>
+              </div>
             </div>
-          </div>
-
-          <div className="card">
-            <div className="section-label">Percent of Total Reads</div>
-            <div className="chart-wrap">
-              <PctChart data={pctChartData} d1={d1} d2={d2} />
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="section-label">Export</div>
-            <button className="export-btn" onClick={handleExport}>
-              ⬇ Download Excel Report
-            </button>
-          </div>
-        </>
-      )}
+          </>
+        )}
+      </div>
     </div>
   )
 }
