@@ -46,7 +46,7 @@ function CustomTooltip({ active, payload, label, isPercent }) {
 export function AbsChart({ data, d1, d2 }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 60 }}>
+      <BarChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 100 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(100,130,255,0.1)" />
         <XAxis
           dataKey="name"
@@ -57,7 +57,7 @@ export function AbsChart({ data, d1, d2 }) {
         />
         <YAxis tick={{ fill: 'rgba(180,190,230,0.55)', fontSize: 11, fontFamily: 'IBM Plex Mono' }} />
         <Tooltip content={<CustomTooltip isPercent={false} />} />
-        <Legend wrapperStyle={{ paddingTop: 16, fontSize: 12, fontFamily: 'IBM Plex Mono' }} />
+        <Legend verticalAlign="top" wrapperStyle={{ paddingBottom: 16, fontSize: 12, fontFamily: 'IBM Plex Mono' }} />
         <Bar dataKey={`Mapped to ${d1}`} stackId="a" fill={C1} />
         <Bar dataKey={`Mapped to ${d2}`} stackId="a" fill={C2} />
         <Bar dataKey="Unmapped" stackId="a" fill={C3} />
@@ -69,7 +69,7 @@ export function AbsChart({ data, d1, d2 }) {
 export function PctChart({ data, d1, d2 }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 60 }}>
+      <BarChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 100 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(100,130,255,0.1)" />
         <XAxis
           dataKey="name"
@@ -83,7 +83,7 @@ export function PctChart({ data, d1, d2 }) {
           tick={{ fill: 'rgba(180,190,230,0.55)', fontSize: 11, fontFamily: 'IBM Plex Mono' }}
         />
         <Tooltip content={<CustomTooltip isPercent={true} />} />
-        <Legend wrapperStyle={{ paddingTop: 16, fontSize: 12, fontFamily: 'IBM Plex Mono' }} />
+        <Legend verticalAlign="top" wrapperStyle={{ paddingBottom: 16, fontSize: 12, fontFamily: 'IBM Plex Mono' }} />
         <Bar dataKey={`${d1} (%)`} stackId="a" fill={C1} />
         <Bar dataKey={`${d2} (%)`} stackId="a" fill={C2} />
         <Bar dataKey="Unmapped (%)" stackId="a" fill={C3} />
