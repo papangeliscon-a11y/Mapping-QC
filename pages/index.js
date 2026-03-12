@@ -1,17 +1,8 @@
 import { useState, useCallback, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 
-// Recharts must be dynamically imported (no SSR) because it uses browser APIs
-const BarChart = dynamic(() => import('recharts').then(m => m.BarChart), { ssr: false })
-const Bar = dynamic(() => import('recharts').then(m => m.Bar), { ssr: false })
-const XAxis = dynamic(() => import('recharts').then(m => m.XAxis), { ssr: false })
-const YAxis = dynamic(() => import('recharts').then(m => m.YAxis), { ssr: false })
-const CartesianGrid = dynamic(() => import('recharts').then(m => m.CartesianGrid), { ssr: false })
-const Tooltip = dynamic(() => import('recharts').then(m => m.Tooltip), { ssr: false })
-const Legend = dynamic(() => import('recharts').then(m => m.Legend), { ssr: false })
-const ResponsiveContainer = dynamic(() => import('recharts').then(m => m.ResponsiveContainer), { ssr: false })
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
+const AbsChart = dynamic(() => import('../components/Charts').then(m => m.AbsChart), { ssr: false })
+const PctChart = dynamic(() => import('../components/Charts').then(m => m.PctChart), { ssr: false })
 
 function normaliseName(filename) {
   return filename.replace(/\.[^.]+$/, '').replace(/\s+/g, ' ').trim()
@@ -44,21 +35,12 @@ function fmtPct(n) {
   return Number(n).toFixed(2) + '%'
 }
 
-const C1 = '#4f7cff'
-const C2 = '#22d3a0'
-const C3 = '#f43f5e'
-
-// ─── Upload Zone ─────────────────────────────────────────────────────────────
-
 function UploadZone({ label, files, onFiles }) {
   const [hover, setHover] = useState(false)
-
   const handleChange = (e) => {
-    const newFiles = Array.from(e.target.files || [])
-    onFiles(newFiles)
+    onFiles(Array.from(e.target.files || []))
     e.target.value = ''
   }
-
   return (
     <div
       className={`upload-zone${hover ? ' active' : ''}`}
@@ -82,31 +64,6 @@ function UploadZone({ label, files, onFiles }) {
   )
 }
 
-// ─── Custom Tooltip ──────────────────────────────────────────────────────────
-
-function CustomTooltip({ active, payload, label, isPercent }) {
-  if (!active || !payload || !payload.length) return null
-  return (
-    <div style={{
-      background: '#111520',
-      border: '1px solid rgba(100,130,255,0.2)',
-      borderRadius: 6,
-      padding: '10px 14px',
-      fontSize: 12,
-      fontFamily: 'IBM Plex Mono, monospace',
-    }}>
-      <div style={{ color: 'rgba(230,235,255,0.9)', marginBottom: 6, fontWeight: 600 }}>{label}</div>
-      {payload.map(p => (
-        <div key={p.dataKey} style={{ color: p.fill, marginBottom: 2 }}>
-          {p.name}: {isPercent ? fmtPct(p.value) : fmtNum(p.value)}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ─── Main Page ───────────────────────────────────────────────────────────────
-
 export default function Home() {
   const [name1, setName1] = useState('Dataset 1')
   const [name2, setName2] = useState('Dataset 2')
@@ -128,20 +85,16 @@ export default function Home() {
     return dict
   }, [])
 
-  const buildTable = useCallback(async () => {
-    if (files1.length === 0 && files2.length === 0) return
-
+  const buildTable = useCallback(async (f1, f2, label1, label2) => {
     setLoading(true)
-    const [dict1, dict2] = await Promise.all([readFiles(files1), readFiles(files2)])
+    const [dict1, dict2] = await Promise.all([readFiles(f1), readFiles(f2)])
     const allSamples = [...new Set([...Object.keys(dict1), ...Object.keys(dict2)])].sort()
-
     const rows = []
     const warns = []
 
     for (const sample of allSamples) {
       const e1 = dict1[sample] || null
       const e2 = dict2[sample] || null
-
       let total1 = null, mapped1 = null
       let total2 = null, mapped2 = null
 
@@ -149,13 +102,13 @@ export default function Home() {
         const r = parseFlagstat(e1.text)
         total1 = r.total; mapped1 = r.mapped
         if (total1 == null || mapped1 == null)
-          warns.push(`${sample}: could not fully parse ${d1} file (${e1.filename})`)
+          warns.push(`${sample}: could not fully parse ${label1} file (${e1.filename})`)
       }
       if (e2) {
         const r = parseFlagstat(e2.text)
         total2 = r.total; mapped2 = r.mapped
         if (total2 == null || mapped2 == null)
-          warns.push(`${sample}: could not fully parse ${d2} file (${e2.filename})`)
+          warns.push(`${sample}: could not fully parse ${label2} file (${e2.filename})`)
       }
 
       const totalReads = total1 ?? total2
@@ -163,12 +116,10 @@ export default function Home() {
       const m2 = mapped2 ?? 0
       const totalMapped = m1 + m2
       const unmapped = totalReads != null ? Math.max(0, totalReads - totalMapped) : null
-
       const pct = (n, d) => (n != null && d != null && d > 0) ? n / d * 100 : null
 
       rows.push({
-        sample,
-        totalReads,
+        sample, totalReads,
         mapped1: e1 ? mapped1 : null,
         mapped2: e2 ? mapped2 : null,
         unmapped,
@@ -176,9 +127,7 @@ export default function Home() {
         pct2: pct(mapped2, totalReads),
         pctUnmapped: pct(unmapped, totalReads),
         pct2ofMapped: totalMapped > 0 ? pct(m2, totalMapped) : null,
-        totalMapped,
-        total1,
-        total2,
+        totalMapped, total1, total2,
         totalsMatch: (total1 != null && total2 != null) ? total1 === total2 : null,
         file1: e1 ? e1.filename : '',
         file2: e2 ? e2.filename : '',
@@ -186,16 +135,14 @@ export default function Home() {
         present2: !!e2,
       })
     }
-
     setTableData(rows)
     setWarnings(warns)
     setLoading(false)
-  }, [files1, files2, d1, d2, readFiles])
+  }, [readFiles])
 
-  // Auto-build whenever files or names change
   useMemo(() => {
     if (files1.length > 0 || files2.length > 0) {
-      buildTable()
+      buildTable(files1, files2, d1, d2)
     } else {
       setTableData(null)
     }
@@ -224,7 +171,6 @@ export default function Home() {
 
   const handleExport = useCallback(async () => {
     const XLSX = await import('xlsx')
-
     const mainRows = tableData.map(r => ({
       Sample: r.sample,
       'Total Reads': r.totalReads,
@@ -244,14 +190,10 @@ export default function Home() {
       [`${d1} Present`]: r.present1,
       [`${d2} Present`]: r.present2,
     }))
-
-    const absRows = absChartData
-    const pctRows = pctChartData
-
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(mainRows), 'Mapping Summary')
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(absRows), 'Plot Data Absolute')
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pctRows), 'Plot Data Percent')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(absChartData), 'Plot Data Absolute')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pctChartData), 'Plot Data Percent')
     XLSX.writeFile(wb, 'Mapping_QC_Report.xlsx')
   }, [tableData, d1, d2, absChartData, pctChartData])
 
@@ -259,13 +201,11 @@ export default function Home() {
 
   return (
     <div className="app">
-      {/* Header */}
       <div className="header">
         <h1>Mapping QC Comparison</h1>
         <p>Flexible comparison of two mapping result sets</p>
       </div>
 
-      {/* Dataset Labels */}
       <div className="card">
         <div className="section-label">Dataset Labels</div>
         <div className="name-grid">
@@ -280,7 +220,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* File Upload */}
       <div className="card">
         <div className="section-label">Upload Flagstat Files</div>
         <div className="upload-grid">
@@ -289,18 +228,12 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Info when empty */}
       {!hasData && !loading && (
         <div className="info-banner">
           Upload at least one set of .txt flagstat files to generate the report.
         </div>
       )}
-
-      {loading && (
-        <div className="info-banner">Parsing files…</div>
-      )}
-
-      {/* Warnings */}
+      {loading && <div className="info-banner">Parsing files…</div>}
       {warnings.length > 0 && (
         <div className="warn-banner">
           <strong>Parsing warnings:</strong>
@@ -308,7 +241,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* Table */}
       {hasData && (
         <>
           <div className="card">
@@ -344,18 +276,12 @@ export default function Home() {
                       <td className="td-num">{fmtPct(r.pctUnmapped)}</td>
                       <td className="td-num">{fmtPct(r.pct2ofMapped)}</td>
                       <td className="td-center">
-                        {r.totalsMatch == null
-                          ? <span className="badge-na">—</span>
-                          : r.totalsMatch
-                            ? <span className="badge-ok">✓</span>
-                            : <span className="badge-warn">✗</span>}
+                        {r.totalsMatch == null ? <span className="badge-na">—</span>
+                          : r.totalsMatch ? <span className="badge-ok">✓</span>
+                          : <span className="badge-warn">✗</span>}
                       </td>
-                      <td className="td-center">
-                        {r.present1 ? <span className="badge-ok">✓</span> : <span className="badge-warn">✗</span>}
-                      </td>
-                      <td className="td-center">
-                        {r.present2 ? <span className="badge-ok">✓</span> : <span className="badge-warn">✗</span>}
-                      </td>
+                      <td className="td-center">{r.present1 ? <span className="badge-ok">✓</span> : <span className="badge-warn">✗</span>}</td>
+                      <td className="td-center">{r.present2 ? <span className="badge-ok">✓</span> : <span className="badge-warn">✗</span>}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -363,59 +289,20 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Charts */}
           <div className="card">
             <div className="section-label">Absolute Reads</div>
             <div className="chart-wrap">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={absChartData} margin={{ top: 10, right: 20, left: 10, bottom: 60 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(100,130,255,0.1)" />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fill: 'rgba(180,190,230,0.55)', fontSize: 11, fontFamily: 'IBM Plex Mono' }}
-                    angle={-40}
-                    textAnchor="end"
-                    interval={0}
-                  />
-                  <YAxis tick={{ fill: 'rgba(180,190,230,0.55)', fontSize: 11, fontFamily: 'IBM Plex Mono' }} />
-                  <Tooltip content={<CustomTooltip isPercent={false} />} />
-                  <Legend wrapperStyle={{ paddingTop: 16, fontSize: 12, fontFamily: 'IBM Plex Mono' }} />
-                  <Bar dataKey={`Mapped to ${d1}`} stackId="a" fill={C1} />
-                  <Bar dataKey={`Mapped to ${d2}`} stackId="a" fill={C2} />
-                  <Bar dataKey="Unmapped" stackId="a" fill={C3} />
-                </BarChart>
-              </ResponsiveContainer>
+              <AbsChart data={absChartData} d1={d1} d2={d2} />
             </div>
           </div>
 
           <div className="card">
             <div className="section-label">Percent of Total Reads</div>
             <div className="chart-wrap">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={pctChartData} margin={{ top: 10, right: 20, left: 10, bottom: 60 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(100,130,255,0.1)" />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fill: 'rgba(180,190,230,0.55)', fontSize: 11, fontFamily: 'IBM Plex Mono' }}
-                    angle={-40}
-                    textAnchor="end"
-                    interval={0}
-                  />
-                  <YAxis
-                    tickFormatter={v => v + '%'}
-                    tick={{ fill: 'rgba(180,190,230,0.55)', fontSize: 11, fontFamily: 'IBM Plex Mono' }}
-                  />
-                  <Tooltip content={<CustomTooltip isPercent={true} />} />
-                  <Legend wrapperStyle={{ paddingTop: 16, fontSize: 12, fontFamily: 'IBM Plex Mono' }} />
-                  <Bar dataKey={`${d1} (%)`} stackId="a" fill={C1} />
-                  <Bar dataKey={`${d2} (%)`} stackId="a" fill={C2} />
-                  <Bar dataKey="Unmapped (%)" stackId="a" fill={C3} />
-                </BarChart>
-              </ResponsiveContainer>
+              <PctChart data={pctChartData} d1={d1} d2={d2} />
             </div>
           </div>
 
-          {/* Export */}
           <div className="card">
             <div className="section-label">Export</div>
             <button className="export-btn" onClick={handleExport}>
